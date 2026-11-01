@@ -790,7 +790,6 @@
     let pin = document.getElementById('inputPinAcceso').value.trim();
     if (pin === PIN_ADMIN) {
       document.getElementById('loginOverlay').style.display = 'none';
-      // Verificación de seguridad previa a la inicialización general de datos
       inicializarSistemaTrasLogin();
     } else {
       document.getElementById('errorLogin').innerText = "❌ Contraseña incorrecta. Intente nuevamente.";
@@ -803,6 +802,7 @@
     renderFormularioValery();
     renderReportesGenerales();
     verificarVencimientosCxP();
+    poblarSelectoresDesposte();
     sincronizarDatosNube();
   }
 
@@ -817,6 +817,7 @@
           if(!DB_GANADO.facturasMargen) DB_GANADO.facturasMargen = [];
           if(!DB_GANADO.recepcionesCharcuteria) DB_GANADO.recepcionesCharcuteria = [];
           if(!DB_GANADO.recepcionesProteinas) DB_GANADO.recepcionesProteinas = [];
+          if(!DB_GANADO.lotesDespostadosHistorial) DB_GANADO.lotesDespostadosHistorial = [];
           
           if (DB_GANADO.tasaBcv) document.getElementById('tasaBcvGlobal').value = fmtBs(DB_GANADO.tasaBcv);
           if (DB_GANADO.tasaParalelo) document.getElementById('tasaParaleloGlobal').value = fmtBs(DB_GANADO.tasaParalelo);
@@ -826,6 +827,7 @@
           renderFormularioValery();
           renderReportesGenerales();
           verificarVencimientosCxP();
+          poblarSelectoresDesposte();
         }
       }
     } catch (e) {
@@ -944,635 +946,356 @@
     if(id === 'm-cava') renderCava();
     if(id === 'm-valery') renderFormularioValery();
     if(id === 'm-reportes') renderReportesGenerales();
+    if(id === 'm-desposte') poblarSelectoresDesposte();
   }
 
-  function registrarProductoDinamico(e) {
-    e.preventDefault();
-    let nombre = document.getElementById('dinNombreProducto').value.trim().toUpperCase();
-    let unidad = document.getElementById('dinUnidad').value;
-    let costo = parseM(document.getElementById('dinCosto').value);
-    let precio = parseM(document.getElementById('dinPrecio').value);
-
-    if (!nombre || costo <= 0 || precio <= 0) {
-      showAlert('alertDinamico', '⚠️ Complete todos los campos correctamente.', 'error');
-      return;
-    }
-
-    if(DB_GANADO.cortesRes[nombre]) {
-      showAlert('alertDinamico', '⚠️ Este producto ya existe en el catálogo o inventario.', 'error');
-      return;
-    }
-
-    DB_GANADO.cortesRes[nombre] = {
-      costo: costo,
-      precio: precio,
-      stock: 0,
-      unidad: unidad,
-      esDinamico: true
-    };
-
-    document.getElementById('formCrearProductoDinamico').reset();
-    guardarDatosFirebase();
-    renderTablaPrecios();
-    renderCava();
-    renderFormularioValery();
-    showAlert('alertDinamico', `✨ Producto "${nombre}" registrado con éxito.`, 'success');
-  }
-
-  function editarProductoCava(corte) {
-    let item = DB_GANADO.cortesRes[corte];
-    if(!item || !item.esDinamico) return;
-
-    document.getElementById('editCavaNombreOriginal').value = corte;
-    document.getElementById('editCavaNombre').value = corte;
-    document.getElementById('editCavaUnidad').value = item.unidad;
-    document.getElementById('editCavaCosto').value = fmtBs(item.costo);
-    document.getElementById('editCavaPrecio').value = fmtBs(item.precio);
-
-    document.getElementById('panelEditarProdCava').style.display = 'block';
-  }
-
-  function cancelarEdicionProductoCava() {
-    document.getElementById('panelEditarProdCava').style.display = 'none';
-    document.getElementById('editCavaNombreOriginal').value = '';
-  }
-
-  function guardarEdicionProductoCava() {
-    let original = document.getElementById('editCavaNombreOriginal').value;
-    let nuevoNombre = document.getElementById('editCavaNombre').value.trim().toUpperCase();
-    let nuevaUnidad = document.getElementById('editCavaUnidad').value;
-    let nuevoCosto = parseM(document.getElementById('editCavaCosto').value);
-    let nuevoPrecio = parseM(document.getElementById('editCavaPrecio').value);
-
-    if(!nuevoNombre || nuevoCosto <= 0 || nuevoPrecio <= 0) {
-      alert("⚠️ Complete todos los campos correctamente.");
-      return;
-    }
-
-    let itemViejo = DB_GANADO.cortesRes[original];
-    if(!itemViejo) return;
-
-    if(original !== nuevoNombre) {
-      if(DB_GANADO.cortesRes[nuevoNombre]) {
-        alert("⚠️ Ya existe un producto con ese nombre.");
-        return;
+  // --- FUNCIONES RECUPERADAS Y CORREGIDAS ( MÓDULO GANADO Y LOTE ) ---
+  function toggleFormularioLote() {
+    const chk = document.getElementById('checkVerificoTasas');
+    const inputs = document.querySelectorAll('.input-bloqueado-tasa');
+    const btnGuardar = document.getElementById('btnGuardarLote');
+    
+    if (chk && chk.checked) {
+      inputs.forEach(i => i.removeAttribute('disabled'));
+      if(btnGuardar) {
+        btnGuardar.removeAttribute('disabled');
+        btnGuardar.style.opacity = '1';
+        btnGuardar.style.cursor = 'pointer';
       }
-      DB_GANADO.cortesRes[nuevoNombre] = {
-        costo: nuevoCosto,
-        precio: nuevoPrecio,
-        stock: itemViejo.stock,
-        unidad: nuevaUnidad,
-        esDinamico: true
-      };
-      delete DB_GANADO.cortesRes[original];
     } else {
-      itemViejo.costo = nuevoCosto;
-      itemViejo.precio = nuevoPrecio;
-      itemViejo.unidad = nuevaUnidad;
+      inputs.forEach(i => i.setAttribute('disabled', 'true'));
+      if(btnGuardar) {
+        btnGuardar.setAttribute('disabled', 'true');
+        btnGuardar.style.opacity = '0.6';
+        btnGuardar.style.cursor = 'not-allowed';
+      }
     }
-
-    cancelarEdicionProductoCava();
-    guardarDatosFirebase();
-    renderCava();
-    renderTablaPrecios();
-    renderFormularioValery();
   }
 
-  function eliminarProductoCava(corte) {
-    if(!confirm(`⚠️ ¿Desea eliminar el producto "${corte}" de la Cava?`)) return;
-    delete DB_GANADO.cortesRes[corte];
-    guardarDatosFirebase();
-    renderCava();
-    renderTablaPrecios();
-    renderFormularioValery();
+  function toggleDiasCredito() {
+    let mod = document.getElementById('modalidadPagoLote').value;
+    document.getElementById('grupoDiasCredito').style.display = mod.includes('CONTADO') ? 'none' : 'block';
   }
 
-  function toggleMargenCredito() {
-    let mod = document.getElementById('mgModalidad').value;
-    document.getElementById('mgGrupoDias').style.display = mod.includes('CONTADO') ? 'none' : 'block';
+  function toggleTrasteInput() {
+    let trajo = document.getElementById('trajoTraste').checked;
+    document.getElementById('grupoInputsTrasteDetallado').style.display = trajo ? 'flex' : 'none';
   }
 
-  function calcularPreviewMargen() {
-    let montoUsd = parseM(document.getElementById('mgMontoUsd').value);
-    let porc = parseM(document.getElementById('mgPorcentaje').value);
-    let box = document.getElementById('resumenMargenBox');
-    if(montoUsd <= 0) { if(box) box.style.display = 'none'; return; }
+  function calcularPreviewLote() {
+    let kg = parseM(document.getElementById('kgBrutos').value);
+    let precio = parseM(document.getElementById('precioCanal').value);
+    let trajo = document.getElementById('trajoTraste').checked;
+    let cantT = trajo ? parseM(document.getElementById('cantTrasteDetalle').value) : 0;
+    let precioT = trajo ? parseM(document.getElementById('precioTrasteDetalle').value) : 0;
 
-    let gananciaUsd = montoUsd * (porc / 100);
-    let ventaProyectada = montoUsd + gananciaUsd;
+    let totalCanal = kg * precio;
+    let totalTraste = cantT * precioT;
+    let totalLote = totalCanal + totalTraste;
 
-    document.getElementById('mgTxtVentaProyectada').innerText = `$${fmtBs(ventaProyectada)}`;
-    document.getElementById('mgTxtInversion').innerText = `$${fmtBs(montoUsd)}`;
-    document.getElementById('mgTxtGanancia').innerText = `$${fmtBs(gananciaUsd)} (${porc}%)`;
+    document.getElementById('txtLoteUsd').innerText = `$${fmtBs(totalLote)}`;
+    document.getElementById('txtDesgloseCanal').innerText = `$${fmtBs(totalCanal)}`;
+    document.getElementById('txtDesgloseTraste').innerText = `$${fmtBs(totalTraste)}`;
 
-    let mod = document.getElementById('mgModalidad').value;
-    let dias = parseM(document.getElementById('mgDias').value);
-    let fecha = document.getElementById('mgFecha').value;
+    let mod = document.getElementById('modalidadPagoLote').value;
+    let dias = parseM(document.getElementById('diasCredito').value);
+    let fecha = document.getElementById('fechaLote').value;
 
-    if(!mod.includes('CONTADO') && fecha) {
+    if (!mod.includes('CONTADO') && fecha) {
       let d = new Date(fecha);
       d.setDate(d.getDate() + dias);
-      document.getElementById('mgTxtVence').innerText = d.toLocaleDateString('es-VE') + ` (${dias} días)`;
-      document.getElementById('mgLineaVence').style.display = 'flex';
+      document.getElementById('txtFechaVence').innerText = d.toLocaleDateString('es-VE') + ` (${dias} días)`;
+      document.getElementById('lineaFechaVence').style.display = 'flex';
     } else {
-      document.getElementById('mgLineaVence').style.display = 'none';
+      document.getElementById('lineaFechaVence').style.display = 'none';
     }
-    if(box) box.style.display = 'block';
+    document.getElementById('resumenLoteBox').style.display = 'block';
   }
 
-  function prepararFacturaMargen(e) {
+  function prepararLoteGanado(e) {
     e.preventDefault();
-    pedirConfirmacionTasa("¿Desea registrar esta factura global/nota con la Tasa BCV actual?", registrarFacturaMargenGlobalReal);
+    pedirConfirmacionTasa("¿Desea registrar este Lote de Ganado con la Tasa BCV actual?", guardarLoteGanadoReal);
   }
 
-  function registrarFacturaMargenGlobalReal() {
-    let proveedor = document.getElementById('mgProveedor').value.trim().toUpperCase();
-    let nro = document.getElementById('mgNroFact').value.trim().toUpperCase();
-    let fecha = document.getElementById('mgFecha').value;
-    let categoria = document.getElementById('mgCategoria').value;
-    let montoUsd = parseM(document.getElementById('mgMontoUsd').value);
-    let porc = parseM(document.getElementById('mgPorcentaje').value);
-    let mod = document.getElementById('mgModalidad').value;
-    let dias = parseM(document.getElementById('mgDias').value);
+  function guardarLoteGanadoReal() {
+    let docTipo = document.getElementById('docTipo').value;
+    let docNro = document.getElementById('docNro').value.trim().toUpperCase();
+    let loteId = document.getElementById('loteId').value.trim().toUpperCase();
+    let proveedor = document.getElementById('proveedor').value.trim().toUpperCase();
+    let sexo = document.getElementById('sexoGanado').value;
+    let fecha = document.getElementById('fechaLote').value;
+    let mod = document.getElementById('modalidadPagoLote').value;
+    let dias = parseM(document.getElementById('diasCredito').value);
+    let kgBrutos = parseM(document.getElementById('kgBrutos').value);
+    let precioCanal = parseM(document.getElementById('precioCanal').value);
+    let trajoTraste = document.getElementById('trajoTraste').checked;
+    let cantTraste = trajoTraste ? parseM(document.getElementById('cantTrasteDetalle').value) : 0;
+    let precioTraste = trajoTraste ? parseM(document.getElementById('precioTrasteDetalle').value) : 0;
 
-    let gananciaUsd = montoUsd * (porc / 100);
-    let ventaProyectada = montoUsd + gananciaUsd;
+    let totalCanal = kgBrutos * precioCanal;
+    let totalTraste = cantTraste * precioTraste;
+    let montoTotalUsd = totalCanal + totalTraste;
 
     let fVence = new Date(fecha);
     fVence.setDate(fVence.getDate() + (mod.includes('CONTADO') ? 0 : dias));
     let fechaVenceStr = fVence.toISOString().split('T')[0];
-    let idUnico = 'MG_' + Date.now();
 
-    DB_GANADO.facturasMargen.push({
-      idUnico, fecha, vence: fechaVenceStr, proveedor, ref: `Doc. ${nro} (${categoria})`,
-      categoria, montoUsd, saldoPendienteUsd: montoUsd, porcentaje: porc, ventaProyectada, gananciaUsd, modalidad: mod
+    let editandoId = document.getElementById('editandoLoteId').value;
+    if (editandoId) {
+      DB_GANADO.lotes = DB_GANADO.lotes.filter(l => l.loteId !== editandoId);
+      DB_GANADO.historial = DB_GANADO.historial.filter(h => h.idUnico !== editandoId);
+    }
+
+    DB_GANADO.lotes.push({
+      loteId, docTipo, docNro, proveedor, sexo, fecha, modalidad: mod, diasCredito: dias,
+      kgBrutos, precioCanal, trajoTraste, cantTraste, precioTraste, montoTotalUsd, despostado: false
     });
 
     DB_GANADO.historial.push({
-      idUnico, fecha, vence: fechaVenceStr, ref: `Doc. ${nro} (${categoria} - ${porc}%)`,
+      idUnico: loteId, fecha, vence: fechaVenceStr, ref: `Lote ${loteId} (${sexo} - ${kgBrutos} KG)`,
+      proveedor, totalUsd: montoTotalUsd, saldoPendienteUsd: montoTotalUsd, modalidad: mod
+    });
+
+    document.getElementById('formEntradaUnificada').reset();
+    document.getElementById('resumenLoteBox').style.display = 'none';
+    document.getElementById('checkVerificoTasas').checked = false;
+    toggleFormularioLote();
+    ponerFechaHoy('fechaLote');
+
+    guardarDatosFirebase();
+    renderHistorialGeneral();
+    renderReportesGenerales();
+    verificarVencimientosCxP();
+    poblarSelectoresDesposte();
+    showAlert('alertEntrada', `✨ Lote "${loteId}" registrado y sumado a CxP con éxito.`, 'success');
+  }
+
+  function cancelarEdicionLote() {
+    document.getElementById('formEntradaUnificada').reset();
+    document.getElementById('editandoLoteId').value = '';
+    document.getElementById('btnCancelarEdicionLote').style.display = 'none';
+    document.getElementById('btnGuardarLote').innerText = 'Registrar Lote de Ganado y CxP';
+  }
+
+  // --- FUNCIONES RECUPERADAS: RECEPCIÓN DE POLLO Y CERDO ---
+  function toggleDiasCreditoPollo() {
+    let mod = document.getElementById('modPolloCochino').value;
+    document.getElementById('grupoDiasCreditoPollo').style.display = mod.includes('CONTADO') ? 'none' : 'block';
+  }
+
+  function calcularPreviewPolloCochino() {
+    let kg = parseM(document.getElementById('kgPolloCochino').value);
+    let costo = parseM(document.getElementById('costoKgPolloCochino').value);
+    let total = kg * costo;
+
+    document.getElementById('txtPolloUsd').innerText = `$${fmtBs(total)}`;
+    let mod = document.getElementById('modPolloCochino').value;
+    let dias = parseM(document.getElementById('diasPolloCochino').value);
+    let fecha = document.getElementById('fechaPolloCochino').value;
+
+    if (!mod.includes('CONTADO') && fecha) {
+      let d = new Date(fecha);
+      d.setDate(d.getDate() + dias);
+      document.getElementById('txtFechaVencePollo').innerText = d.toLocaleDateString('es-VE') + ` (${dias} días)`;
+      document.getElementById('lineaFechaVencePollo').style.display = 'flex';
+    } else {
+      document.getElementById('lineaFechaVencePollo').style.display = 'none';
+    }
+    document.getElementById('resumenPolloBox').style.display = 'block';
+  }
+
+  function prepararPolloCochino(e) {
+    e.preventDefault();
+    pedirConfirmacionTasa("¿Registrar esta compra de proteína con la Tasa BCV actual?", registrarPolloCochinoReal);
+  }
+
+  function registrarPolloCochinoReal() {
+    let proveedor = document.getElementById('provPolloCochino').value.trim().toUpperCase();
+    let nro = document.getElementById('nroFactPolloCochino').value.trim().toUpperCase();
+    let fecha = document.getElementById('fechaPolloCochino').value;
+    let item = document.getElementById('itemPolloCochino').value;
+    let cantidad = parseM(document.getElementById('kgPolloCochino').value);
+    let costoUnitario = parseM(document.getElementById('costoKgPolloCochino').value);
+    let mod = document.getElementById('modPolloCochino').value;
+    let dias = parseM(document.getElementById('diasPolloCochino').value);
+
+    let montoUsd = cantidad * costoUnitario;
+    let fVence = new Date(fecha);
+    fVence.setDate(fVence.getDate() + (mod.includes('CONTADO') ? 0 : dias));
+    let fechaVenceStr = fVence.toISOString().split('T')[0];
+    let idUnico = 'PROT_' + Date.now();
+
+    if (DB_GANADO.cortesRes[item]) {
+      DB_GANADO.cortesRes[item].stock += cantidad;
+      DB_GANADO.cortesRes[item].costo = costoUnitario;
+    }
+
+    DB_GANADO.recepcionesProteinas.push({
+      idUnico, fecha, proveedor, nro, item, cantidad, costoUnitario, montoUsd, modalidad: mod
+    });
+
+    DB_GANADO.historial.push({
+      idUnico, fecha, vence: fechaVenceStr, ref: `Nota ${nro} (${item} - ${cantidad} KG)`,
       proveedor, totalUsd: montoUsd, saldoPendienteUsd: montoUsd, modalidad: mod
     });
 
-    document.getElementById('formFacturaMargen').reset();
-    document.getElementById('resumenMargenBox').style.display = 'none';
-    ponerFechaHoy('mgFecha');
+    document.getElementById('formEntradaPolloCochino').reset();
+    document.getElementById('resumenPolloBox').style.display = 'none';
+    ponerFechaHoy('fechaPolloCochino');
 
     guardarDatosFirebase();
+    renderCava();
     renderHistorialGeneral();
     renderReportesGenerales();
     verificarVencimientosCxP();
-    showAlert('alertMargen', `✨ Factura/Nota registrada con éxito.`, 'success');
+    showAlert('alertPolloCochino', `✨ Compra de "${item}" registrada y sumada a la Cava.`, 'success');
   }
 
-  function verificarVencimientosCxP() {
-    const banner = document.getElementById('bannerAlertaVencimientos');
-    const contenido = document.getElementById('contenidoAlertaVencimiento');
-    if (!banner || !contenido) return;
-
-    const hoy = new Date().toISOString().split('T')[0];
-    let facturasCriticas = [];
-
-    if (!DB_GANADO.historial) return;
-    DB_GANADO.historial.forEach(h => {
-      let saldoUsd = h.saldoPendienteUsd !== undefined ? h.saldoPendienteUsd : h.totalUsd;
-      if (saldoUsd > 0.01 && h.vence && h.vence <= hoy) facturasCriticas.push(h);
-    });
-
-    if (facturasCriticas.length > 0) {
-      banner.style.display = 'block';
-      banner.style.background = '#f8d7da';
-      banner.style.color = '#721c24';
-      banner.style.borderColor = '#dc3545';
-      let html = `🚨 <strong>PAGOS VENCIDOS O PARA HOY:</strong><ul style="margin-left:20px; margin-top:4px;">`;
-      facturasCriticas.forEach(f => {
-        let saldo = f.saldoPendienteUsd !== undefined ? f.saldoPendienteUsd : f.totalUsd;
-        html += `<li><strong>${f.proveedor}</strong> (${f.ref}): $${fmtBs(saldo)} - Vence: ${f.vence}</li>`;
+  // --- FUNCIONES RECUPERADAS: MÓDULO DE DESPOSTE Y PIZARRA BLANCA ---
+  function poblarSelectoresDesposte() {
+    const sel = document.getElementById('selectLoteDesposte');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">-- Seleccione un Lote de Ganado --</option>';
+    if (DB_GANADO.lotes) {
+      DB_GANADO.lotes.filter(l => !l.despostado).forEach(l => {
+        sel.innerHTML += `<option value="${l.loteId}">${l.loteId} - Hato: ${l.proveedor} (${fmtBs(l.kgBrutos)} KG)</option>`;
       });
-      html += `</ul>`;
-      contenido.innerHTML = html;
-    } else {
-      banner.style.display = 'none';
     }
   }
 
-  function renderReportesGenerales() {
-    let tbodyEntradas = document.getElementById('tbodyReporteEntradasCarnicero');
-    if (tbodyEntradas) {
-      tbodyEntradas.innerHTML = '';
-      let entradasEncontradas = false;
-
-      if (DB_GANADO.lotes && DB_GANADO.lotes.length > 0) {
-        entradasEncontradas = true;
-        DB_GANADO.lotes.forEach(l => {
-          let desposteAsoc = DB_GANADO.lotesDespostadosHistorial ? DB_GANADO.lotesDespostadosHistorial.find(d => d.loteId === l.loteId) : null;
-          let detRend = desposteAsoc ? `Rendimiento: ${fmtBs(desposteAsoc.rendimiento)}% (${fmtBs(desposteAsoc.kgCarneLimpia)} KG carne)` : 'Pendiente por Despostar';
-
-          tbodyEntradas.innerHTML += `<tr>
-            <td>${l.fecha}</td>
-            <td><strong>${l.loteId}</strong> (${l.docTipo} ${l.docNro})</td>
-            <td>${l.proveedor}</td>
-            <td><strong>GANADO (${l.sexo})</strong></td>
-            <td>${fmtBs(l.kgBrutos)} KG</td>
-            <td>$${fmtBs(l.precioCanal)} / KG</td>
-            <td>$${fmtBs(l.montoTotalUsd)}</td>
-            <td><span style="color:${desposteAsoc?'#2e7d32':'#e65100'}; font-weight:bold;">${detRend}</span></td>
-          </tr>`;
-        });
-      }
-
-      if (DB_GANADO.recepcionesProteinas && DB_GANADO.recepcionesProteinas.length > 0) {
-        entradasEncontradas = true;
-        DB_GANADO.recepcionesProteinas.forEach(p => {
-          tbodyEntradas.innerHTML += `<tr>
-            <td>${p.fecha}</td>
-            <td>Doc. ${p.nro}</td>
-            <td>${p.proveedor}</td>
-            <td><strong>${p.item}</strong></td>
-            <td>${fmtBs(p.cantidad)} KG</td>
-            <td>$${fmtBs(p.costoUnitario)} / KG</td>
-            <td>$${fmtBs(p.montoUsd)}</td>
-            <td>Ingresado a Cava</td>
-          </tr>`;
-        });
-      }
-
-      if (!entradasEncontradas) {
-        tbodyEntradas.innerHTML = `<tr><td colspan="8" style="text-align:center;">Sin entradas de mercancía registradas.</td></tr>`;
-      }
-    }
-
-    let tbodyCxp = document.getElementById('tbodyReporteCxp');
-    if (tbodyCxp) {
-      if (DB_GANADO.historial.length === 0) {
-        tbodyCxp.innerHTML = `<tr><td colspan="6" style="text-align:center;">No hay cuentas por pagar pendientes.</td></tr>`;
-        if(document.getElementById('kpiCxpTotalUsd')) document.getElementById('kpiCxpTotalUsd').innerText = '$0,00';
-        if(document.getElementById('kpiCxpTotalBs')) document.getElementById('kpiCxpTotalBs').innerText = 'Bs. 0,00';
-        if(document.getElementById('kpiCxpCantFacturas')) document.getElementById('kpiCxpCantFacturas').innerText = '0';
-      } else {
-        tbodyCxp.innerHTML = '';
-        let totalCxpUsd = 0;
-        let totalCxpBs = 0;
-
-        DB_GANADO.historial.forEach(h => {
-          let saldoUsd = h.saldoPendienteUsd !== undefined ? h.saldoPendienteUsd : h.totalUsd;
-          let totalBsActual = h.modalidad && h.modalidad.includes('CONTADO_BCV') ? saldoUsd * DB_GANADO.tasaBcv :
-                              h.modalidad && h.modalidad.includes('CONTADO_PARALELO') ? saldoUsd * DB_GANADO.tasaParalelo :
-                              ((saldoUsd / 2) * DB_GANADO.tasaBcv) + ((saldoUsd / 2) * DB_GANADO.tasaParalelo);
-
-          totalCxpUsd += saldoUsd;
-          totalCxpBs += totalBsActual;
-
-          tbodyCxp.innerHTML += `<tr>
-            <td><strong>${h.vence}</strong></td>
-            <td>${h.proveedor}</td>
-            <td>${h.ref}</td>
-            <td>${h.modalidad}</td>
-            <td>$${fmtBs(saldoUsd)}</td>
-            <td><strong style="color:var(--primary);">Bs. ${fmtBs(totalBsActual)}</strong></td>
-          </tr>`;
-        });
-
-        if(document.getElementById('kpiCxpTotalUsd')) document.getElementById('kpiCxpTotalUsd').innerText = `$${fmtBs(totalCxpUsd)}`;
-        if(document.getElementById('kpiCxpTotalBs')) document.getElementById('kpiCxpTotalBs').innerText = `Bs. ${fmtBs(totalCxpBs)}`;
-        if(document.getElementById('kpiCxpCantFacturas')) document.getElementById('kpiCxpCantFacturas').innerText = DB_GANADO.historial.length;
-      }
-    }
-
-    let tbodyMargenes = document.getElementById('tbodyReporteMargenes');
-    if (tbodyMargenes) {
-      if(!DB_GANADO.facturasMargen || DB_GANADO.facturasMargen.length === 0) {
-        tbodyMargenes.innerHTML = `<tr><td colspan="7" style="text-align:center;">Sin facturas globales registradas.</td></tr>`;
-      } else {
-        tbodyMargenes.innerHTML = '';
-        DB_GANADO.facturasMargen.forEach(f => {
-          tbodyMargenes.innerHTML += `<tr>
-            <td>${f.fecha}</td>
-            <td>${f.proveedor}</td>
-            <td><strong>${f.categoria}</strong></td>
-            <td>$${fmtBs(f.montoUsd)}</td>
-            <td>${f.porcentaje}%</td>
-            <td>$${fmtBs(f.ventaProyectada)}</td>
-            <td><strong style="color:var(--success);">$${fmtBs(f.gananciaUsd)}</strong></td>
-          </tr>`;
-        });
-      }
-    }
-
-    const tCava = document.getElementById('repTablaCava');
-    if(tCava) {
-      tCava.innerHTML = '';
-      let sumCostoRepUsd = 0;
-      let sumVentaRepUsd = 0;
-
-      for(let corte in DB_GANADO.cortesRes) {
-        let item = DB_GANADO.cortesRes[corte];
-        let cUsd = item.stock * item.costo;
-        let vUsd = item.stock * item.precio;
-
-        sumCostoRepUsd += cUsd;
-        sumVentaRepUsd += vUsd;
-
-        tCava.innerHTML += `<tr>
-          <td><strong>${corte}</strong> ${item.esDinamico ? '<small style="color:#1976d2;">(Específico)</small>':''}</td>
-          <td>${fmtBs(item.stock)} ${item.unidad}</td>
-          <td>$${fmtBs(cUsd)}</td>
-          <td>Bs. ${fmtBs(cUsd * DB_GANADO.tasaBcv)}</td>
-          <td>$${fmtBs(vUsd)}</td>
-          <td>Bs. ${fmtBs(vUsd * DB_GANADO.tasaBcv)}</td>
-        </tr>`;
-      }
-
-      tCava.innerHTML += `
-        <tr style="background:#e8f4fd; font-weight:bold; border-top: 2px solid #0d47a1;">
-          <td>TOTAL GENERAL INVENTARIO:</td>
-          <td>Activo</td>
-          <td>$${fmtBs(sumCostoRepUsd)}</td>
-          <td>Bs. ${fmtBs(sumCostoRepUsd * DB_GANADO.tasaBcv)}</td>
-          <td>$${fmtBs(sumVentaRepUsd)}</td>
-          <td>Bs. ${fmtBs(sumVentaRepUsd * DB_GANADO.tasaBcv)}</td>
-        </tr>
-      `;
-    }
-
-    const tCierres = document.getElementById('repTablaCierres');
-    if(tCierres) {
-      if(DB_GANADO.cierresDiarios.length === 0) {
-        tCierres.innerHTML = `<tr><td colspan="6" style="text-align:center;">Sin cierres archivados todavía.</td></tr>`;
-      } else {
-        tCierres.innerHTML = '';
-        DB_GANADO.cierresDiarios.forEach(c => {
-          tCierres.innerHTML += `<tr>
-            <td>${c.fecha}</td>
-            <td>${fmtBs(c.kgPulitura)} KG</td>
-            <td>$${fmtBs(c.ventaUsd)}</td>
-            <td>Bs. ${fmtBs(c.ventaBs)}</td>
-            <td>Bs. ${fmtBs(c.arqueoBs)}</td>
-            <td><strong style="color:${c.estado.includes('Faltante')?'red':'green'};">${c.estado}</strong></td>
-          </tr>`;
-        });
-      }
-    }
-  }
-
-  function exportarReportesExcel() {
-    let htmlTabla = `
-      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-      <head><meta charset="utf-8"><title>Reportes Integrales Porkys C.A.</title></head>
-      <body>
-        <h2>Reporte Operativo de Entradas (Carnicería y Cava)</h2>
-        ` + document.getElementById('tablaExcelEntradasCarnicero').outerHTML + `
-        <br><h2>1. Reporte Consolidado de Cuentas por Pagar (CxP)</h2>
-        ` + document.getElementById('tablaExcelCxp').outerHTML + `
-        <br><h2>2. Facturas Globales por Margen (%)</h2>
-        ` + document.getElementById('tablaExcelMargenes').outerHTML + `
-        <br><h2>3. Inventario General Consolidado</h2>
-        ` + document.getElementById('tablaExcelCava').outerHTML + `
-        <br><h2>4. Histórico de Cierres Diarios</h2>
-        ` + document.getElementById('tablaExcelCierres').outerHTML + `
-      </body>
-      </html>
-    `;
-
-    let blob = new Blob([htmlTabla], { type: 'application/vnd.ms-excel' });
-    let url = URL.createObjectURL(blob);
-    let a = document.createElement('a');
-    a.href = url;
-    a.download = `Reportes_Integrales_Porkys_${new Date().toISOString().split('T')[0]}.xls`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
-
-  function renderTablaPrecios() {
-    const tbody = document.getElementById('tablaPreciosRes');
-    if(!tbody) return;
-    tbody.innerHTML = '';
-    for(let corte in DB_GANADO.cortesRes) {
-      let item = DB_GANADO.cortesRes[corte];
-      let bss = item.precio * DB_GANADO.tasaBcv;
-      tbody.innerHTML += `<tr>
-        <td><strong>${corte}</strong> ${item.esDinamico ? '<span style="color:#1976d2; font-size:0.7rem;">(Específico)</span>' : ''}</td>
-        <td>
-          <span style="font-weight:bold; color:var(--success);">$</span>
-          <input type="text" value="${fmtBs(item.precio)}" onchange="actualizarPrecioCorte('${corte}', this.value, this)" style="width:90px; font-weight:bold; color:var(--success); padding:4px 6px;">
-        </td>
-        <td><strong style="color:var(--primary);">Bs. ${fmtBs(bss)}</strong></td>
-        <td>$${fmtBs(item.costo)}</td>
-      </tr>`;
-    }
-  }
-
-  function actualizarPrecioCorte(corte, nuevoValorStr, inputEl) {
-    let nuevoPrecio = parseM(nuevoValorStr);
-    if (nuevoPrecio > 500) { alert("⚠️ Precio muy alto. Verifique decimales."); return; }
-    DB_GANADO.cortesRes[corte].precio = nuevoPrecio;
-    guardarDatosFirebase();
-    renderTablaPrecios();
-    renderCava();
-  }
-
-  function renderCava() {
-    const tbody = document.getElementById('tablaCavaRes');
-    if(!tbody) return;
-    tbody.innerHTML = '';
-    let totalRes = 0, totalOtras = 0, sumCosto = 0, sumVenta = 0;
-
-    for(let corte in DB_GANADO.cortesRes) {
-      let item = DB_GANADO.cortesRes[corte];
-      if (item.unidad === "KG") {
-        if(item.esDinamico || ["POLLO CARIDAD", "POLLO PEPOLLO", "CHULETA DE CERDO", "OVEJO"].includes(corte)) totalOtras += item.stock;
-        else totalRes += item.stock;
-      }
-      let cUsd = item.stock * item.costo;
-      let vUsd = item.stock * item.precio;
-      sumCosto += cUsd;
-      sumVenta += vUsd;
-
-      let accionesHtml = item.esDinamico ? `
-        <button class="btn-warning" onclick="editarProductoCava('${corte}')" style="padding:2px 6px; font-size:0.7rem;">✏️</button>
-        <button class="btn-danger" onclick="eliminarProductoCava('${corte}')" style="padding:2px 6px; font-size:0.7rem;">🗑️</button>
-      ` : `<span style="color:#888; font-size:0.75rem;">Sistema</span>`;
-
-      tbody.innerHTML += `<tr>
-        <td><strong>${corte}</strong></td>
-        <td><strong>${fmtBs(item.stock)} ${item.unidad}</strong></td>
-        <td>$${fmtBs(cUsd)}</td>
-        <td>$${fmtBs(vUsd)}</td>
-        <td>${accionesHtml}</td>
-      </tr>`;
-    }
-
-    if(document.getElementById('lblKilosResCava')) document.getElementById('lblKilosResCava').innerText = `${fmtBs(totalRes)} KG`;
-    if(document.getElementById('lblKilosOtrasProteinasCava')) document.getElementById('lblKilosOtrasProteinasCava').innerText = `${fmtBs(totalOtras)} KG/Cant`;
-    if(document.getElementById('lblKilosTotalesCavaGlobal')) document.getElementById('lblKilosTotalesCavaGlobal').innerText = `${fmtBs(totalRes + totalOtras)} Global`;
-  }
-
-  function renderHistorialGeneral() {
-    const tbody = document.getElementById('tablaHistorialGeneral');
-    if(!tbody) return;
-    if(DB_GANADO.historial.length === 0) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;">Sin cuentas por pagar registradas.</td></tr>`; return; }
-    tbody.innerHTML = '';
-    DB_GANADO.historial.forEach(h => {
-      let saldoUsd = h.saldoPendienteUsd !== undefined ? h.saldoPendienteUsd : h.totalUsd;
-      let totalBsActual = (saldoUsd / 2 * DB_GANADO.tasaBcv) + (saldoUsd / 2 * DB_GANADO.tasaParalelo);
-      tbody.innerHTML += `<tr>
-        <td>${h.vence}</td>
-        <td><strong>${h.ref}</strong></td>
-        <td>${h.proveedor}</td>
-        <td>$${fmtBs(saldoUsd)}</td>
-        <td><strong style="color:var(--primary);">Bs. ${fmtBs(totalBsActual)}</strong></td>
-        <td><span style="background:#fff3cd; color:#856404; padding:2px 6px; border-radius:4px;">Pendiente</span></td>
-        <td>
-          <button class="btn-success" onclick="abrirPanelAbonoInline('${h.idUnico}')" style="padding:4px 8px; font-size:0.75rem;">💳 Abonar</button>
-          <button class="btn-danger" onclick="eliminarItemHistorial('${h.idUnico}')" style="padding:4px 8px; font-size:0.75rem;">🗑️ Anular</button>
-        </td>
-      </tr>`;
-    });
-  }
-
-  function abrirPanelAbonoInline(idUnico) {
-    const item = DB_GANADO.historial.find(h => h.idUnico === idUnico);
-    if(!item) return;
-    facturaEnProcesoAbono = item;
-    document.getElementById('tituloAbonoInline').innerText = `💳 Abonar a: ${item.proveedor}`;
-    document.getElementById('subtituloAbonoInline').innerText = `Saldo pendiente: $${fmtBs(item.saldoPendienteUsd)}`;
-    document.getElementById('inputMontoAbono').value = fmtBs(item.saldoPendienteUsd);
-    document.getElementById('panelAbonoInline').style.display = 'block';
-  }
-
-  function cancelarAbonoInline() {
-    facturaEnProcesoAbono = null;
-    document.getElementById('panelAbonoInline').style.display = 'none';
-  }
-
-  function ejecutarAbonoInline() {
-    if (!facturaEnProcesoAbono) return;
-    let abonoUsd = parseM(document.getElementById('inputMontoAbono').value);
-    if (abonoUsd <= 0) return;
-    if (abonoUsd > facturaEnProcesoAbono.saldoPendienteUsd) abonoUsd = facturaEnProcesoAbono.saldoPendienteUsd;
-
-    facturaEnProcesoAbono.saldoPendienteUsd -= abonoUsd;
-    if (facturaEnProcesoAbono.saldoPendienteUsd <= 0.01) {
-      DB_GANADO.historial = DB_GANADO.historial.filter(h => h.idUnico !== facturaEnProcesoAbono.idUnico);
-    }
-    cancelarAbonoInline();
-    guardarDatosFirebase();
-    renderHistorialGeneral();
-    verificarVencimientosCxP();
-  }
-
-  function eliminarItemHistorial(idUnico) {
-    if(!confirm("⚠️ ¿Desea anular esta cuenta por pagar?")) return;
-    DB_GANADO.historial = DB_GANADO.historial.filter(h => h.idUnico !== idUnico);
-    DB_GANADO.facturasMargen = DB_GANADO.facturasMargen.filter(f => f.idUnico !== idUnico);
-    guardarDatosFirebase();
-    renderHistorialGeneral();
-    renderReportesGenerales();
-    verificarVencimientosCxP();
-  }
-
-  function renderFormularioValery() {
-    const cont = document.getElementById('contenedorVentasRes');
-    if(!cont) return;
-    cont.innerHTML = '';
-    for(let corte in DB_GANADO.cortesRes) {
-      let item = DB_GANADO.cortesRes[corte];
-      cont.innerHTML += `<div class="form-row"><div class="form-group"><input type="text" value="${corte} ${item.esDinamico ? '(Específico)':''}" readonly style="background:#eee;"></div><div class="form-group"><input type="text" class="valery-corte-qty" data-corte="${corte}" placeholder="0,00 ${item.unidad} vendidos" oninput="validarMascara(this); calcularArqueoGanado();"></div></div>`;
-    }
-  }
-
-  function calcularArqueoGanado() {
-    let totalUsd = 0;
-    document.querySelectorAll('.valery-corte-qty').forEach(i => {
-      let corte = i.getAttribute('data-corte');
-      let cant = parseM(i.value);
-      let precio = DB_GANADO.cortesRes[corte] ? DB_GANADO.cortesRes[corte].precio : 0;
-      totalUsd += cant * precio;
-    });
-
-    let arqUsd = parseM(document.getElementById('cajaUsd').value);
-    let arqEfecBs = parseM(document.getElementById('cajaEfecBs').value);
-    let arqPunto = parseM(document.getElementById('cajaPunto').value);
-    let arqTransf = parseM(document.getElementById('cajaTransf').value);
-
-    let totalArqueoBs = (arqUsd * DB_GANADO.tasaBcv) + arqEfecBs + arqPunto + arqTransf;
-    let ventaBsTotal = totalUsd * DB_GANADO.tasaBcv;
-
-    document.getElementById('txtVentaTotalUsd').innerText = `$${fmtBs(totalUsd)}`;
-    document.getElementById('txtVentaTotalBs').innerText = `Bs. ${fmtBs(ventaBsTotal)}`;
-    document.getElementById('txtTotalArqueoBs').innerText = `Bs. ${fmtBs(totalArqueoBs)}`;
-  }
-
-  function prepararCierreCaja(e) {
-    e.preventDefault();
-    document.getElementById('btnAccionCierre').style.display = 'none';
-    document.getElementById('panelConfirmCierre').style.display = 'block';
-  }
-
-  function cancelarCierreCaja() {
-    document.getElementById('btnAccionCierre').style.display = 'block';
-    document.getElementById('panelConfirmCierre').style.display = 'none';
-  }
-
-  function ejecutarCierreCaja() {
-    let fecha = document.getElementById('fechaCierre').value;
-    let kgPul = parseM(document.getElementById('kgPulituraCierre').value);
-    if(kgPul > 0) DB_GANADO.cortesRes["PELLEJO / SEBO"].stock += kgPul;
-
-    let totalUsd = 0;
-    let itemsVenta = {};
-
-    document.querySelectorAll('.valery-corte-qty').forEach(i => {
-      let corte = i.getAttribute('data-corte');
-      let cant = parseM(i.value);
-      if(cant > 0 && DB_GANADO.cortesRes[corte]) {
-        itemsVenta[corte] = cant;
-        totalUsd += cant * DB_GANADO.cortesRes[corte].precio;
-        DB_GANADO.cortesRes[corte].stock = Math.max(0, DB_GANADO.cortesRes[corte].stock - cant);
-      }
-    });
-
-    let arqUsd = parseM(document.getElementById('cajaUsd').value);
-    let arqEfecBs = parseM(document.getElementById('cajaEfecBs').value);
-    let arqPunto = parseM(document.getElementById('cajaPunto').value);
-    let arqTransf = parseM(document.getElementById('cajaTransf').value);
-
-    let totalArqueoBs = (arqUsd * DB_GANADO.tasaBcv) + arqEfecBs + arqPunto + arqTransf;
-    let ventaBs = totalUsd * DB_GANADO.tasaBcv;
-
-    DB_GANADO.cierresDiarios.push({
-      fecha, kgPulitura: kgPul, ventaUsd: totalUsd, ventaBs, arqueoBs: totalArqueoBs, estado: 'Cuadrado'
-    });
-
-    guardarDatosFirebase();
-    renderCava();
-    cancelarCierreCaja();
-    document.getElementById('formCierreValery').reset();
-    ponerFechaHoy('fechaCierre');
-    renderFormularioValery();
-    showAlert('alertValery', "✨ Cierre diario archivado con éxito.", "success");
-  }
-
-  function botonVaciarBaseDeDatosSeguro() {
-    let clave = prompt("Ingrese la clave para borrar datos:");
-    if (clave !== PIN_ADMIN) {
-      alert("❌ Clave incorrecta. Operación cancelada.");
+  function cargarEstructuraDesposte() {
+    let loteId = document.getElementById('selectLoteDesposte').value;
+    let lote = DB_GANADO.lotes.find(l => l.loteId === loteId);
+    let cont = document.getElementById('contenedorCortesDesposte');
+    let seccionTraste = document.getElementById('seccionTrasteDesposte');
+    
+    if(!lote) {
+      document.getElementById('despKgCanal').value = '';
+      document.getElementById('despCostoKg').value = '';
+      if(cont) cont.innerHTML = '';
+      if(seccionTraste) seccionTraste.style.display = 'none';
       return;
     }
-    if (!confirm("⚠️ ¿Desea borrar toda la base de datos del sistema? Esta acción no se puede deshacer.")) return;
-    DB_GANADO.historial = [];
-    DB_GANADO.facturasMargen = [];
-    DB_GANADO.recepcionesCharcuteria = [];
-    DB_GANADO.recepcionesProteinas = [];
-    DB_GANADO.cierresDiarios = [];
-    for(let k in DB_GANADO.cortesRes) DB_GANADO.cortesRes[k].stock = 0;
+
+    document.getElementById('despKgCanal').value = fmtBs(lote.kgBrutos) + ' KG';
+    document.getElementById('despCostoKg').value = '$' + fmtBs(lote.precioCanal);
+    document.getElementById('lblPrecioCostillaCalc').innerText = fmtBs(DB_GANADO.cortesRes["COSTILLA DE RES"].precio);
+    document.getElementById('lblPrecioLagartoCalc').innerText = fmtBs(DB_GANADO.cortesRes["LAGARTO CON HUESO"].precio);
+
+    if(cont) {
+      let cortesResList = [
+        "CARNE DE PRIMERA", "CARNE DE SEGUNDA", "CARNE MOLIDA", "SOLOMO / PUNTA / LOMITO",
+        "COSTILLA DE RES", "LAGARTO CON HUESO", "HUESO ROJO (HR)", "PELLEJO / SEBO", "HUESO BLANCO / ESQUELETO"
+      ];
+      cont.innerHTML = '';
+      cortesResList.forEach(c => {
+        cont.innerHTML += `<div class="form-row">
+          <div class="form-group"><label>${c}:</label><input type="text" class="corte-desposte-input" data-corte="${c}" placeholder="0,00 KG" oninput="validarMascara(this); calcularAnalisisDesposte();"></div>
+        </div>`;
+      });
+    }
+
+    if(seccionTraste) seccionTraste.style.display = lote.trajoTraste ? 'block' : 'none';
+    calcularAnalisisDesposte();
+  }
+
+  function calcularAnalisisDesposte() {
+    let loteId = document.getElementById('selectLoteDesposte').value;
+    let lote = DB_GANADO.lotes.find(l => l.loteId === loteId);
+    if (!lote) return;
+
+    let kgBrutos = lote.kgBrutos;
+    let totalKgAprovechados = 0;
+    let pesoCostillaLagarto = 0;
+
+    document.querySelectorAll('.corte-desposte-input').forEach(inp => {
+      let nombreCorte = inp.getAttribute('data-corte');
+      let val = parseM(inp.value);
+      totalKgAprovechados += val;
+      if (nombreCorte === "COSTILLA DE RES" || nombreCorte === "LAGARTO CON HUESO") {
+        pesoCostillaLagarto += val;
+      }
+    });
+
+    let kgMerma = Math.max(0, kgBrutos - totalKgAprovechados);
+    let porcRendimiento = kgBrutos > 0 ? (totalKgAprovechados / kgBrutos) * 100 : 0;
+    let precioCostilla = DB_GANADO.cortesRes["COSTILLA DE RES"].precio;
+    let precioLagarto = DB_GANADO.cortesRes["LAGARTO CON HUESO"].precio;
+    let recuperacionBs = pesoCostillaLagarto * ((precioCostilla + precioLagarto) / 2) * DB_GANADO.tasaBcv;
+
+    document.getElementById('kpiApro').innerText = `${fmtBs(totalKgAprovechados)} KG`;
+    document.getElementById('kpiRend').innerText = `${fmtBs(porcRendimiento)}%`;
+    document.getElementById('kpiMerma').innerText = `${fmtBs(kgMerma)} KG`;
+    document.getElementById('kpiMermaUsd').innerText = `$${fmtBs(kgMerma * lote.precioCanal)}`;
+
+    document.getElementById('alertaMermaRoja').style.display = porcRendimiento < 88 ? 'block' : 'none';
+    document.getElementById('cardCostoRealComerciante').style.display = 'block';
+  }
+
+  function prepararGuardarDesposte(e) {
+    e.preventDefault();
+    document.getElementById('btnAccionDesposte').style.display = 'none';
+    document.getElementById('panelConfirmDesposte').style.display = 'block';
+  }
+
+  function cancelarGuardarDesposte() {
+    document.getElementById('btnAccionDesposte').style.display = 'block';
+    document.getElementById('panelConfirmDesposte').style.display = 'none';
+  }
+
+  function ejecutarGuardarDesposte() {
+    let loteId = document.getElementById('selectLoteDesposte').value;
+    let lote = DB_GANADO.lotes.find(l => l.loteId === loteId);
+    if(!lote) return;
+
+    let totalKg = 0;
+    document.querySelectorAll('.corte-desposte-input').forEach(inp => {
+      let corte = inp.getAttribute('data-corte');
+      let val = parseM(inp.value);
+      totalKg += val;
+      if(DB_GANADO.cortesRes[corte]) DB_GANADO.cortesRes[corte].stock += val;
+    });
+
+    if (lote.trajoTraste) {
+      document.querySelectorAll('.traste-despiece-input').forEach(inp => {
+        let pieza = inp.getAttribute('data-pieza');
+        let val = parseM(inp.value);
+        if(DB_GANADO.cortesRes[pieza]) DB_GANADO.cortesRes[pieza].stock += val;
+      });
+    }
+
+    lote.despostado = true;
+    if(!DB_GANADO.lotesDespostadosHistorial) DB_GANADO.lotesDespostadosHistorial = [];
+    DB_GANADO.lotesDespostadosHistorial.push({
+      loteId, rendimiento: (totalKg / lote.kgBrutos) * 100, kgCarneLimpia: totalKg
+    });
+
     guardarDatosFirebase();
-    actualizarSistema();
+    renderCava();
+    renderReportesGenerales();
+    cancelarGuardarDesposte();
+    document.getElementById('formDesposte').reset();
+    poblarSelectoresDesposte();
+    document.getElementById('cardCostoRealComerciante').style.display = 'none';
+    showAlert('alertDesposte', "✨ Desposte guardado y stock actualizado en Cava.", "success");
+  }
+
+  function registrarProduccionChorizo(e) {
+    e.preventDefault();
+    let kg = parseM(document.getElementById('kgChorizoProducido').value);
+    if(kg <= 0) return;
+    DB_GANADO.cortesRes["PASTA DE CHORIZO"].stock += kg;
+    guardarDatosFirebase();
+    renderCava();
+    document.getElementById('formProdChorizo').reset();
+    ponerFechaHoy('fechaChorizo');
+    showAlert('alertChorizo', `✨ Se sumaron ${fmtBs(kg)} KG de Pasta de Chorizo a la Cava.`, 'success');
   }
 
   ponerFechaHoy('mgFecha');
   ponerFechaHoy('fechaLote');
   ponerFechaHoy('fechaPolloCochino');
+  ponerFechaHoy('fechaChorizo');
   ponerFechaHoy('fechaCierre');
 </script>
 
